@@ -1,12 +1,10 @@
 use std::{
-    env,
-    fs,
+    env, fs,
     io::{self, Write},
     os::unix::fs::PermissionsExt,
     path::Path,
     process,
 };
-
 
 const PROMPT: &str = "$ ";
 const BUILTINS: [&str; 5] = ["echo", "exit", "type", "pwd", "cd"];
@@ -16,6 +14,10 @@ fn main() {
         eprintln!("Shell error: {}", e);
         process::exit(1);
     }
+}
+
+struct Redirection {
+    stdout_file: Option<String>,
 }
 
 fn run_shell() -> io::Result<()> {
@@ -56,17 +58,36 @@ fn read_input() -> io::Result<Option<String>> {
 
 fn execute_command(command: &str) -> bool {
     let parts = parse_arguments(command);
+    let (parts, redirection) = parse_redirection(parts);
 
     match parts.first().map(String::as_str) {
         Some("exit") => process::exit(0),
-        Some("echo") => handle_echo(&parts),
-        Some("pwd") => handle_pwd(),
+        Some("echo") => handle_echo(&parts, &redirection),
+        Some("pwd") => handle_pwd(&redirection),
         Some("cd") => handle_cd(&parts),
-        Some("type") => handle_type(&parts),
-        Some(cmd) => handle_external_or_unknown(cmd, &parts),
+        Some("type") => handle_type(&parts, &redirection),
+        Some(cmd) => handle_external_or_unknown(cmd, &parts, &redirection),
         None => {}
     }
     true
+}
+
+fn parse_redirection(parts: Vec<String>) -> (Vec<String>, Redirection) {
+    let mut command_parts = Vec::new();
+    let mut redirection = Redirection { stdout_file: None };
+
+    let mut iter = parts.into_iter().peekable();
+
+    while let Some(part) = iter.next() {
+        if part == ">" || part == "1>" {
+            if let Some(filename) = iter.next() {
+                redirection.stdout_file = Some(filename);
+            }
+        } else {
+            command_parts.push(part);
+        }
+    }
+    (command_parts, redirection)
 }
 
 fn parse_arguments(input: &str) -> Vec<String> {
@@ -78,7 +99,6 @@ fn parse_arguments(input: &str) -> Vec<String> {
     let mut escape_next = false;
 
     for ch in input.chars() {
-
         if escape_next {
             current.push(ch);
             token_in_progress = true;
@@ -118,8 +138,8 @@ fn parse_arguments(input: &str) -> Vec<String> {
     args
 }
 
-fn handle_echo(parts: &[String]) {
-    println!(
+fn handle_echo(parts: &[String], redirection: &Redirection) {
+    let output = format!(
         "{}",
         parts
             .iter()
@@ -128,12 +148,24 @@ fn handle_echo(parts: &[String]) {
             .collect::<Vec<_>>()
             .join(" ")
     );
+
+    if let Some(filename) = &redirection.stdout_file {
+        fs::write(filename, format!("{}\n", output)).unwrap();
+    } else {
+        println!("{}", output);
+    }
 }
 
-fn handle_pwd() {
-    match env::current_dir() {
-        Ok(path) => println!("{}", path.display()),
-        Err(e) => eprintln!("pwd: error retrieving current directory: {}", e),
+fn handle_pwd(redirection: &Redirection) {
+    let output = match env::current_dir() {
+        Ok(path) => path.display().to_string(),
+        Err(e) => format!("pwd: error retrieving current directory: {}", e),
+    };
+
+    if let Some(filename) = &redirection.stdout_file {
+        fs::write(filename, output).unwrap();
+    } else {
+        println!("{}", output);
     }
 }
 
@@ -157,21 +189,28 @@ fn handle_cd(parts: &[String]) {
     }
 }
 
-fn handle_type(parts: &[String]) {
+fn handle_type(parts: &[String], redirection: &Redirection) {
+    let mut output = String::new();
     if let Some(cmd) = parts.get(1) {
         if is_internal_builtin(cmd) {
-            println!("{} is a shell builtin", cmd);
+            output.push_str(&format!("{} is a shell builtin", cmd));
         } else if let Some(path) = get_executable_path(cmd) {
-            println!("{} is {}", cmd, path);
+            output.push_str(&format!("{} is {}", cmd, path));
         } else {
-            println!("{}: not found", cmd);
+            output.push_str(&format!("{}: not found", cmd));
         }
+    }
+
+    if let Some(filename) = &redirection.stdout_file {
+        fs::write(filename, format!("{}\n", output)).unwrap();
+    } else {
+        println!("{}", output);
     }
 }
 
-fn handle_external_or_unknown(cmd: &str, parts: &[String]) {
+fn handle_external_or_unknown(cmd: &str, parts: &[String], redirection: &Redirection) {
     if is_external_command(cmd) {
-        run_external_command(cmd, &parts[1..]);
+        run_external_command(cmd, &parts[1..], &redirection);
     } else {
         println!("{}: command not found", cmd);
     }
@@ -205,9 +244,16 @@ fn is_executable(path: &Path) -> bool {
     }
 }
 
-fn run_external_command(command: &str, args: &[String]) -> bool {
+fn run_external_command(command: &str, args: &[String], redirection: &Redirection) -> bool {
     let mut command = process::Command::new(command);
     command.args(args);
-    command.spawn().and_then(|mut child| child.wait())
-    .map_or(false, |status| status.success())
+
+    if let Some(filename) = &redirection.stdout_file {
+        command.stdout(fs::File::create(filename).unwrap());
+    }
+
+    command
+        .spawn()
+        .and_then(|mut child| child.wait())
+        .map_or(false, |status| status.success())
 }
