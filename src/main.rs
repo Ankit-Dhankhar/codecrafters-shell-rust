@@ -1,5 +1,9 @@
+use std::env;
 use std::io::{self, Write};
+use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
 use std::process;
+use std::fs;
 
 const PROMPT: &str = "$ ";
 const BUILTINS: [&str; 3] = ["echo", "exit", "type"];
@@ -38,7 +42,6 @@ fn print_prompt() -> io::Result<()> {
     io::stdout().flush()
 }
 
-
 fn read_input() -> io::Result<Option<String>> {
     let mut input = String::new();
     let bytes_read = io::stdin().read_line(&mut input)?;
@@ -50,8 +53,6 @@ fn read_input() -> io::Result<Option<String>> {
 
 fn execute_command(command: &str) -> bool {
     let parts: Vec<&str> = command.split_whitespace().collect();
-
-
 
     match parts.first() {
         Some(&"exit") => {
@@ -65,6 +66,8 @@ fn execute_command(command: &str) -> bool {
         Some(&"type") => {
             if BUILTINS.contains(&parts[1]) {
                 println!("{} is a shell builtin", parts[1]);
+            } else if let Some(path) = find_in_path(parts[1]) {
+                println!("{} is {}", parts[1], path);
             } else {
                 println!("{}: not found", parts[1]);
             }
@@ -74,4 +77,24 @@ fn execute_command(command: &str) -> bool {
         }
     }
     true
+}
+
+fn find_in_path(command: &str) -> Option<String> {
+    let path_var = env::var("PATH").ok()?;
+
+    for dir in path_var.split(':') {
+        let full_path = Path::new(dir).join(command);
+        if full_path.exists() && is_executable(&full_path) {
+            return Some(full_path.to_string_lossy().to_string());
+        }
+    }
+    None
+}
+
+fn is_executable(path: &Path) -> bool {
+    if let Ok(metadata) = fs::metadata(path) {
+        metadata.permissions().mode() & 0o111 != 0
+    } else {
+        false
+    }
 }
