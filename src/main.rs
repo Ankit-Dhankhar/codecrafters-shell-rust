@@ -18,6 +18,7 @@ fn main() {
 
 struct Redirection {
     stdout_file: Option<String>,
+    stderr_file: Option<String>,
 }
 
 fn run_shell() -> io::Result<()> {
@@ -74,7 +75,10 @@ fn execute_command(command: &str) -> bool {
 
 fn parse_redirection(parts: Vec<String>) -> (Vec<String>, Redirection) {
     let mut command_parts = Vec::new();
-    let mut redirection = Redirection { stdout_file: None };
+    let mut redirection = Redirection {
+        stdout_file: None,
+        stderr_file: None,
+    };
 
     let mut iter = parts.into_iter().peekable();
 
@@ -82,6 +86,10 @@ fn parse_redirection(parts: Vec<String>) -> (Vec<String>, Redirection) {
         if part == ">" || part == "1>" {
             if let Some(filename) = iter.next() {
                 redirection.stdout_file = Some(filename);
+            }
+        } else if part == "2>" {
+            if let Some(filename) = iter.next() {
+                redirection.stderr_file = Some(filename);
             }
         } else {
             command_parts.push(part);
@@ -148,6 +156,10 @@ fn handle_echo(parts: &[String], redirection: &Redirection) {
             .collect::<Vec<_>>()
             .join(" ")
     );
+
+    if let Some(filename) = &redirection.stderr_file {
+        fs::write(filename, "").unwrap();
+    }
 
     if let Some(filename) = &redirection.stdout_file {
         fs::write(filename, format!("{}\n", output)).unwrap();
@@ -250,6 +262,10 @@ fn run_external_command(command: &str, args: &[String], redirection: &Redirectio
 
     if let Some(filename) = &redirection.stdout_file {
         command.stdout(fs::File::create(filename).unwrap());
+    }
+
+    if let Some(filename) = &redirection.stderr_file {
+        command.stderr(fs::File::create(filename).unwrap());
     }
 
     command
