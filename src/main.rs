@@ -1,9 +1,12 @@
-use std::env;
-use std::io::{self, Write};
-use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
-use std::process;
-use std::fs;
+use std::{
+    env,
+    fs,
+    io::{self, Write},
+    os::unix::fs::PermissionsExt,
+    path::Path,
+    process,
+};
+
 
 const PROMPT: &str = "$ ";
 const BUILTINS: [&str; 3] = ["echo", "exit", "type"];
@@ -64,12 +67,19 @@ fn execute_command(command: &str) -> bool {
             }
         }
         Some(&"type") => {
-            if BUILTINS.contains(&parts[1]) {
+            if is_internal_builtin(parts[1]) {
                 println!("{} is a shell builtin", parts[1]);
-            } else if let Some(path) = find_in_path(parts[1]) {
-                println!("{} is {}", parts[1], path);
+            } else if is_external_command(parts[1]) {
+                println!("{} is {}", parts[1], get_executable_path(parts[1]).unwrap());
             } else {
                 println!("{}: not found", parts[1]);
+            }
+        }
+        Some(command) => {
+            if is_external_command(command) {
+                run_external_command(command, &parts[1..]);
+            } else {
+                println!("{}: command not found", command);
             }
         }
         _ => {
@@ -79,7 +89,15 @@ fn execute_command(command: &str) -> bool {
     true
 }
 
-fn find_in_path(command: &str) -> Option<String> {
+fn is_internal_builtin(command: &str) -> bool {
+    BUILTINS.contains(&command)
+}
+
+fn is_external_command(command: &str) -> bool {
+    !is_internal_builtin(command) && get_executable_path(command).is_some()
+}
+
+fn get_executable_path(command: &str) -> Option<String> {
     let path_var = env::var("PATH").ok()?;
 
     for dir in path_var.split(':') {
@@ -97,4 +115,11 @@ fn is_executable(path: &Path) -> bool {
     } else {
         false
     }
+}
+
+fn run_external_command(command: &str, args: &[&str]) -> bool {
+    let mut command = process::Command::new(command);
+    command.args(args);
+    command.spawn().and_then(|mut child| child.wait())
+    .map_or(false, |status| status.success())
 }
