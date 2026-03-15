@@ -9,7 +9,7 @@ use std::{
 
 
 const PROMPT: &str = "$ ";
-const BUILTINS: [&str; 3] = ["echo", "exit", "type"];
+const BUILTINS: [&str; 4] = ["echo", "exit", "type", "pwd"];
 
 fn main() {
     if let Err(e) = run_shell() {
@@ -65,6 +65,9 @@ fn execute_command(command: &str) -> bool {
             if let Some(rest) = command.strip_prefix("echo").map(|s| s.trim()) {
                 println!("{}", rest);
             }
+        }
+        Some(&"pwd") => {
+            println!("{}", env::current_dir().unwrap().to_string_lossy());
         }
         Some(&"type") => {
             if is_internal_builtin(parts[1]) {
