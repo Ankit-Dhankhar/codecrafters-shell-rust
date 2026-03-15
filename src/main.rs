@@ -1,5 +1,6 @@
 use std::{
     env, fs,
+    fs::OpenOptions,
     io::{self, Write},
     os::unix::fs::PermissionsExt,
     path::Path,
@@ -18,7 +19,9 @@ fn main() {
 
 struct Redirection {
     stdout_file: Option<String>,
+    stdout_append: bool,
     stderr_file: Option<String>,
+    stderr_append: bool,
 }
 
 fn run_shell() -> io::Result<()> {
@@ -77,7 +80,9 @@ fn parse_redirection(parts: Vec<String>) -> (Vec<String>, Redirection) {
     let mut command_parts = Vec::new();
     let mut redirection = Redirection {
         stdout_file: None,
+        stdout_append: false,
         stderr_file: None,
+        stderr_append: false,
     };
 
     let mut iter = parts.into_iter().peekable();
@@ -87,9 +92,19 @@ fn parse_redirection(parts: Vec<String>) -> (Vec<String>, Redirection) {
             if let Some(filename) = iter.next() {
                 redirection.stdout_file = Some(filename);
             }
+        } else if part == ">>" || part == "1>>" {
+            if let Some(filename) = iter.next() {
+                redirection.stdout_file = Some(filename);
+                redirection.stdout_append = true;
+            }
         } else if part == "2>" {
             if let Some(filename) = iter.next() {
                 redirection.stderr_file = Some(filename);
+            }
+        } else if part == "2>>" {
+            if let Some(filename) = iter.next() {
+                redirection.stderr_file = Some(filename);
+                redirection.stderr_append = true;
             }
         } else {
             command_parts.push(part);
@@ -158,11 +173,11 @@ fn handle_echo(parts: &[String], redirection: &Redirection) {
     );
 
     if let Some(filename) = &redirection.stderr_file {
-        fs::write(filename, "").unwrap();
+        write_to_file(filename, "", redirection.stderr_append);
     }
 
     if let Some(filename) = &redirection.stdout_file {
-        fs::write(filename, format!("{}\n", output)).unwrap();
+        write_to_file(filename, &format!("{}\n", output), redirection.stdout_append);
     } else {
         println!("{}", output);
     }
@@ -175,7 +190,7 @@ fn handle_pwd(redirection: &Redirection) {
     };
 
     if let Some(filename) = &redirection.stdout_file {
-        fs::write(filename, output).unwrap();
+        write_to_file(filename, &format!("{}\n", output), redirection.stdout_append);
     } else {
         println!("{}", output);
     }
@@ -214,7 +229,7 @@ fn handle_type(parts: &[String], redirection: &Redirection) {
     }
 
     if let Some(filename) = &redirection.stdout_file {
-        fs::write(filename, format!("{}\n", output)).unwrap();
+        write_to_file(filename, &format!("{}\n", output), redirection.stdout_append);
     } else {
         println!("{}", output);
     }
@@ -256,20 +271,34 @@ fn is_executable(path: &Path) -> bool {
     }
 }
 
+fn open_output_file(filename: &str, append: bool) -> fs::File {
+    OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(append)
+        .truncate(!append)
+        .open(filename)
+        .unwrap()
+}
+
+fn write_to_file(filename: &str, content: &str, append: bool) {
+    let mut file = open_output_file(filename, append);
+    write!(file, "{}", content).unwrap();
+}
+
 fn run_external_command(command: &str, args: &[String], redirection: &Redirection) -> bool {
-    let mut command = process::Command::new(command);
-    command.args(args);
+    let mut cmd = process::Command::new(command);
+    cmd.args(args);
 
     if let Some(filename) = &redirection.stdout_file {
-        command.stdout(fs::File::create(filename).unwrap());
+        cmd.stdout(open_output_file(filename, redirection.stdout_append));
     }
 
     if let Some(filename) = &redirection.stderr_file {
-        command.stderr(fs::File::create(filename).unwrap());
+        cmd.stderr(open_output_file(filename, redirection.stderr_append));
     }
 
-    command
-        .spawn()
+    cmd.spawn()
         .and_then(|mut child| child.wait())
         .map_or(false, |status| status.success())
 }
