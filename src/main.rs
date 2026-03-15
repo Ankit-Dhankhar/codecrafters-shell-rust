@@ -75,9 +75,21 @@ fn parse_arguments(input: &str) -> Vec<String> {
     let mut in_single_quotes = false;
     let mut in_double_quotes = false;
     let mut token_in_progress = false;
+    let mut escape_next = false;
 
     for ch in input.chars() {
+
+        if escape_next {
+            current.push(ch);
+            token_in_progress = true;
+            escape_next = false;
+            continue;
+        }
         match ch {
+            '\\' if !in_single_quotes => {
+                escape_next = true;
+                token_in_progress = true;
+            }
             '\'' if !in_double_quotes => {
                 in_single_quotes = !in_single_quotes;
                 token_in_progress = true;
