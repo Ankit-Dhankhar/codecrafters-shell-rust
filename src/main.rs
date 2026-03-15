@@ -9,7 +9,7 @@ use std::{
 
 
 const PROMPT: &str = "$ ";
-const BUILTINS: [&str; 4] = ["echo", "exit", "type", "pwd"];
+const BUILTINS: [&str; 5] = ["echo", "exit", "type", "pwd", "cd"];
 
 fn main() {
     if let Err(e) = run_shell() {
@@ -68,6 +68,25 @@ fn execute_command(command: &str) -> bool {
         }
         Some(&"pwd") => {
             println!("{}", env::current_dir().unwrap().to_string_lossy());
+        }
+        Some(&"cd") => {
+            let target_raw = parts.get(1).map(|&s| s).unwrap_or("/");
+
+            let target_path = if target_raw == "~" {
+                env::var("HOME").unwrap_or_else(|_| "/".to_string())
+            } else {
+                target_raw.to_string()
+            };
+
+            let path = Path::new(&target_path);
+
+            if path.is_dir() {
+                if let Err(e) = env::set_current_dir(&target_path) {
+                    println!("cd: {}: {}", target_path, e);
+                }
+            } else {
+                println!("cd: {}: No such file or directory", target_path);
+            }
         }
         Some(&"type") => {
             if is_internal_builtin(parts[1]) {
