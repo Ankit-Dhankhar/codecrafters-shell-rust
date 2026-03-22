@@ -48,13 +48,13 @@ pub fn complete_filename(partial: &str) -> Vec<Pair> {
             let replacement = if partial.contains('/') {
                 let dir_part = &partial[..partial.rfind('/').unwrap() + 1];
                 if is_dir {
-                    format!("{}{}/ ", dir_part, file_name)
+                    format!("{}{}/", dir_part, file_name)
                 } else {
                     format!("{}{} ", dir_part, file_name)
                 }
             } else {
                 if is_dir {
-                    format!("{}/ ", file_name)
+                    format!("{}/", file_name)
                 } else {
                     format!("{} ", file_name)
                 }
