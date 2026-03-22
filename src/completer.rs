@@ -10,6 +10,7 @@ use rustyline::{
 };
 
 use crate::builtins::BUILTINS;
+use crate::filename_completer::complete_filename;
 use crate::trie::Trie;
 use crate::utils::get_all_executable_paths;
 
@@ -64,7 +65,9 @@ impl Completer for ShellCompleter {
             return Ok((word_start, matches));
         }
 
-        Ok((word_start, vec![]))
+        let matches = complete_filename(prefix);
+
+        Ok((word_start, matches))
     }
 }
 

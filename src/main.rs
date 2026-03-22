@@ -8,6 +8,7 @@ mod executor;
 mod parser;
 mod trie;
 mod utils;
+mod filename_completer;
 
 use completer::ShellCompleter;
 use executor::execute_command;
