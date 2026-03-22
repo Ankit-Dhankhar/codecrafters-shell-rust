@@ -7,6 +7,7 @@ use rustyline::{
 
 use crate::builtins::BUILTINS;
 use crate::trie::Trie;
+use crate::utils::get_all_executable_paths;
 
 pub struct ShellCompleter {
     trie: Trie,
@@ -18,6 +19,10 @@ impl ShellCompleter {
 
         for cmd in BUILTINS {
             trie.insert(cmd);
+        }
+
+        for cmd in get_all_executable_paths() {
+            trie.insert(&cmd);
         }
 
         ShellCompleter { trie }
