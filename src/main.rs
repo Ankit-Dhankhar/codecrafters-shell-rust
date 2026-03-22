@@ -180,7 +180,6 @@ fn run_shell() -> io::Result<()> {
             }
         }
     }
-    Ok(())
 }
 
 fn execute_command(command: &str) -> bool {
