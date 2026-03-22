@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     env, fs,
     fs::OpenOptions,
     io::{self, Write},
@@ -7,8 +8,126 @@ use std::{
     process,
 };
 
+use rustyline::{
+    CompletionType, Config, Context, Editor, Helper,
+    completion::{Completer, Pair},
+    error::ReadlineError, hint::Hinter,
+    highlight::Highlighter, validate::Validator
+};
+
 const PROMPT: &str = "$ ";
 const BUILTINS: [&str; 5] = ["echo", "exit", "type", "pwd", "cd"];
+
+#[derive(Default)]
+struct TrieNode {
+    children: HashMap<char, TrieNode>,
+    is_end_of_word: bool,
+    word: Option<String>,
+}
+
+struct Trie {
+    root: TrieNode,
+}
+
+impl Trie {
+    fn new() -> Self {
+        Trie {
+            root: TrieNode::default(),
+        }
+    }
+
+    fn insert(&mut self, word: &str) {
+        let mut node = &mut self.root;
+        for ch in word.chars() {
+            node = node.children.entry(ch).or_default();
+        }
+        node.is_end_of_word = true;
+        node.word = Some(word.to_string());
+    }
+
+    fn find_with_prefix(&self, prefix: &str) -> Vec<String> {
+        let mut node = &self.root;
+
+        for ch in prefix.chars() {
+            match node.children.get(&ch) {
+                Some(child) => node = child,
+                None => return vec![],
+            }
+        }
+
+        let mut results = Vec::new();
+        self.collect_words(node, &mut results);
+        results
+    }
+
+    fn collect_words(&self, node: &TrieNode, results: &mut Vec<String>) {
+        if let Some(ref word) = node.word {
+            results.push(word.clone());
+        }
+
+        for child in node.children.values() {
+            self.collect_words(child, results);
+        }
+    }
+}
+
+struct ShellCompleter {
+    trie: Trie,
+}
+
+impl ShellCompleter {
+    fn new() -> Self {
+        let mut trie = Trie::new();
+
+        for cmd in BUILTINS {
+            trie.insert(cmd);
+        }
+
+        ShellCompleter { trie }
+    }
+}
+
+impl Completer for ShellCompleter {
+    type Candidate = Pair;
+
+    fn complete(
+        &self,
+        line: &str,
+        pos: usize,
+        _ctx: &Context<'_>,
+    ) -> Result<(usize, Vec<Pair>), ReadlineError> {
+        let word_start = line[..pos].rfind(' ').map(|i| i + 1).unwrap_or(0);
+        let prefix = &line[word_start..pos];
+
+        // Only complete at command position (first word)
+        if word_start == 0 && !prefix.is_empty() {
+            let matches: Vec<Pair> = self
+                .trie
+                .find_with_prefix(prefix)
+                .into_iter()
+                .filter(|word| word != prefix)
+                .map(|word| Pair {
+                    display: word.clone(),
+                    replacement: format!("{} ", word),
+                })
+                .collect();
+
+            return Ok((word_start, matches));
+        }
+
+        Ok((word_start, vec![]))
+    }
+}
+
+impl Hinter for ShellCompleter {
+    type Hint = String;
+}
+
+impl Highlighter for ShellCompleter {}
+
+impl Validator for ShellCompleter {}
+
+impl Helper for ShellCompleter {}
 
 fn main() {
     if let Err(e) = run_shell() {
@@ -26,38 +145,42 @@ struct Redirection {
 
 fn run_shell() -> io::Result<()> {
     loop {
-        print_prompt()?;
+        let config = Config::builder()
+            .completion_type(CompletionType::List)
+            .build();
 
-        let input = match read_input()? {
-            Some(input) => input,
-            None => break,
-        };
+        let mut rl = Editor::with_config(config).expect("failed to create editor");
+        rl.set_helper(Some(ShellCompleter::new()));
 
-        let command = input.trim();
 
-        if command.is_empty() {
-            continue;
-        }
+        loop {
+            match rl.readline(PROMPT) {
+                Ok(line) => {
+                    let command = line.trim();
+                    if command.is_empty() {
+                        continue;
+                    }
 
-        if !execute_command(command) {
-            break;
+                    if !execute_command(command) {
+                        break;
+                    }
+                }
+                Err(ReadlineError::Interrupted) => {
+                    println!("^C");
+                    continue;
+                }
+                Err(ReadlineError::Eof) => {
+                    println!("^D");
+                    break;
+                }
+                Err(error) => {
+                    eprintln!("Error: {:?}", error);
+                    break;
+                }
+            }
         }
     }
     Ok(())
-}
-
-fn print_prompt() -> io::Result<()> {
-    print!("{}", PROMPT);
-    io::stdout().flush()
-}
-
-fn read_input() -> io::Result<Option<String>> {
-    let mut input = String::new();
-    let bytes_read = io::stdin().read_line(&mut input)?;
-    if bytes_read == 0 {
-        return Ok(None);
-    }
-    Ok(Some(input))
 }
 
 fn execute_command(command: &str) -> bool {
@@ -177,7 +300,11 @@ fn handle_echo(parts: &[String], redirection: &Redirection) {
     }
 
     if let Some(filename) = &redirection.stdout_file {
-        write_to_file(filename, &format!("{}\n", output), redirection.stdout_append);
+        write_to_file(
+            filename,
+            &format!("{}\n", output),
+            redirection.stdout_append,
+        );
     } else {
         println!("{}", output);
     }
@@ -190,7 +317,11 @@ fn handle_pwd(redirection: &Redirection) {
     };
 
     if let Some(filename) = &redirection.stdout_file {
-        write_to_file(filename, &format!("{}\n", output), redirection.stdout_append);
+        write_to_file(
+            filename,
+            &format!("{}\n", output),
+            redirection.stdout_append,
+        );
     } else {
         println!("{}", output);
     }
@@ -229,7 +360,11 @@ fn handle_type(parts: &[String], redirection: &Redirection) {
     }
 
     if let Some(filename) = &redirection.stdout_file {
-        write_to_file(filename, &format!("{}\n", output), redirection.stdout_append);
+        write_to_file(
+            filename,
+            &format!("{}\n", output),
+            redirection.stdout_append,
+        );
     } else {
         println!("{}", output);
     }
