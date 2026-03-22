@@ -1,6 +1,6 @@
 use std::{
-    env, fs,
-    fs::OpenOptions,
+    env,
+    fs::{self, OpenOptions},
     io::Write,
     os::unix::fs::PermissionsExt,
     path::Path,
@@ -42,36 +42,27 @@ pub fn write_to_file(filename: &str, content: &str, append: bool) {
 }
 
 pub fn get_all_executable_paths() -> Vec<String> {
-    let mut executables = Vec::new();
-
-    let path_var =  match env::var("PATH") {
+    let path_var = match env::var("PATH") {
         Ok(path) => path,
-        Err(_) => return executables,
+        Err(_) => return Vec::new(),
     };
 
-    for dir in path_var.split(':') {
-        let dir_path = Path::new(dir);
-
-        // Skip if directory doesn't exist or can't be read
-        let enteries = match fs::read_dir(dir_path) {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        for entry in enteries.flatten() {
+    let executables: Vec<String> = path_var
+        .split(":")
+        .filter_map(|dir| fs::read_dir(dir).ok())
+        .flatten()
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
             let path = entry.path();
-
-            // Only include files (not directories) that are executable
             if path.is_file() && is_executable(&path) {
-                if let Some(name) = path.file_name() {
-                    if let Some(name_str) = name.to_str() {
-                        executables.push(name_str.to_string());
-                    }
-                }
+                path.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|s| s.to_string())
+            } else {
+                None
             }
-        }
-    }
-    executables.sort();
-    executables.dedup();
+        })
+        .collect();
 
     executables
 }

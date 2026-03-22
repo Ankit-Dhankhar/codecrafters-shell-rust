@@ -6,15 +6,12 @@ use crate::utils::{get_executable_path, write_to_file};
 pub const BUILTINS: [&str; 5] = ["echo", "exit", "type", "pwd", "cd"];
 
 pub fn handle_echo(parts: &[String], redirection: &Redirection) {
-    let output = format!(
-        "{}",
-        parts
-            .iter()
-            .skip(1)
-            .map(String::as_str)
-            .collect::<Vec<_>>()
-            .join(" ")
-    );
+    let output = parts
+        .iter()
+        .skip(1)
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(" ");
 
     if let Some(filename) = &redirection.stderr_file {
         write_to_file(filename, "", redirection.stderr_append);
@@ -60,7 +57,7 @@ pub fn handle_cd(parts: &[String]) {
     let path = Path::new(&target_path);
 
     if path.is_dir() {
-        if let Err(e) = env::set_current_dir(&path) {
+        if let Err(e) = env::set_current_dir(path) {
             println!("cd: {}: {}", target_path, e);
         }
     } else {

@@ -1,9 +1,7 @@
 use std::process;
 
-use crate::builtins::{
-    handle_cd, handle_echo, handle_pwd, handle_type, is_internal_builtin,
-};
-use crate::parser::{parse_arguments, parse_redirection, Redirection};
+use crate::builtins::{handle_cd, handle_echo, handle_pwd, handle_type, is_internal_builtin};
+use crate::parser::{Redirection, parse_arguments, parse_redirection};
 use crate::utils::{get_executable_path, open_output_file};
 
 pub fn execute_command(command: &str) -> bool {
@@ -24,7 +22,7 @@ pub fn execute_command(command: &str) -> bool {
 
 fn handle_external_or_unknown(cmd: &str, parts: &[String], redirection: &Redirection) {
     if is_external_command(cmd) {
-        run_external_command(cmd, &parts[1..], &redirection);
+        run_external_command(cmd, &parts[1..], redirection);
     } else {
         println!("{}: command not found", cmd);
     }
@@ -48,5 +46,5 @@ fn run_external_command(command: &str, args: &[String], redirection: &Redirectio
 
     cmd.spawn()
         .and_then(|mut child| child.wait())
-        .map_or(false, |status| status.success())
+        .is_ok_and(|status| status.success())
 }

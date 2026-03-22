@@ -1,9 +1,6 @@
 use std::{io, process};
 
-use rustyline::{
-    CompletionType, Config, Editor,
-    error::ReadlineError,
-};
+use rustyline::{CompletionType, Config, Editor, error::ReadlineError};
 
 mod builtins;
 mod completer;
@@ -25,40 +22,39 @@ fn main() {
 }
 
 fn run_shell() -> io::Result<()> {
+    let config = Config::builder()
+        .completion_type(CompletionType::List)
+        .build();
+
+    let mut rl = Editor::with_config(config).expect("failed to create editor");
+    rl.set_helper(Some(ShellCompleter::new()));
+
     loop {
-        let config = Config::builder()
-            .completion_type(CompletionType::List)
-            .build();
-
-        let mut rl = Editor::with_config(config).expect("failed to create editor");
-        rl.set_helper(Some(ShellCompleter::new()));
-
-
-        loop {
-            match rl.readline(PROMPT) {
-                Ok(line) => {
-                    let command = line.trim();
-                    if command.is_empty() {
-                        continue;
-                    }
-
-                    if !execute_command(command) {
-                        break;
-                    }
-                }
-                Err(ReadlineError::Interrupted) => {
-                    println!("^C");
+        match rl.readline(PROMPT) {
+            Ok(line) => {
+                let _ = rl.add_history_entry(line.as_str());
+                let command = line.trim();
+                if command.is_empty() {
                     continue;
                 }
-                Err(ReadlineError::Eof) => {
-                    println!("^D");
-                    break;
-                }
-                Err(error) => {
-                    eprintln!("Error: {:?}", error);
+
+                if !execute_command(command) {
                     break;
                 }
             }
+            Err(ReadlineError::Interrupted) => {
+                println!("^C");
+                continue;
+            }
+            Err(ReadlineError::Eof) => {
+                println!("^D");
+                break;
+            }
+            Err(error) => {
+                eprintln!("Error: {:?}", error);
+                break;
+            }
         }
     }
+    Ok(())
 }
